@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd">
+    <http:listener-config name="HTTP_Sompo" host="0.0.0.0" port="7000" doc:name="HTTP Listener Configuration"/>
+    <http:request-config name="HTTP_Sompo_feedback" host="0.0.0.0" port="7000" doc:name="HTTP Request Configuration"/>
+    <flow name="Customer_Subsystem">
+        <http:listener config-ref="HTTP_Sompo" path="/customer" doc:name="HTTP"/>
+        <logger level="INFO" doc:name="Logger"/>
+        <http:request config-ref="HTTP_Sompo_feedback" path="/mule_esb" method="POST" doc:name="HTTP"/>
+    </flow>
+    <flow name="External_SubSystem">
+        <http:listener config-ref="HTTP_Sompo" path="/external" doc:name="HTTP"/>
+        <logger level="INFO" doc:name="Logger"/>
+        <set-variable variableName="Age" value="#[json:age]" doc:name="Age Variable"/>
+        <set-variable variableName="SA" value="#[json:sum_assured]" doc:name="Sum Assured Variable"/>
+        <set-variable variableName="Premium_Perc" value="#[0.02]" doc:name="Premium Percentage"/>
+        <set-variable variableName="Premium" value="#[#[java.lang.Double.valueOf(flowVars.SA) * flowVars.Premium_Perc]]" doc:name="Premium Calculation"/>
+        <set-payload value="#[{
+&quot;age&quot; : flowVars.Age,
+&quot;sum_assured&quot; : flowVars.SA,
+&quot;premium&quot; : flowVars.Premium
+}]" doc:name="Set Payload"/>
+        <json:object-to-json-transformer doc:name="Object to JSON"/>
+    </flow>
+    <flow name="Mule_Insurance_Integrator">
+        <http:listener config-ref="HTTP_Sompo" path="/mule_esb" doc:name="HTTP"/>
+        <logger level="INFO" doc:name="Logger"/>
+        <http:request config-ref="HTTP_Sompo_feedback" path="/external" method="POST,PUT" doc:name="HTTP"/>
+    </flow>
+</mule>

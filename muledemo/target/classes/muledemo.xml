@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:mule-ss="http://www.mulesoft.org/schema/mule/spring-security"
+	xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:mulexml="http://www.mulesoft.org/schema/mule/xml"
+	xmlns:json="http://www.mulesoft.org/schema/mule/json" 
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" 
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:ss="http://www.springframework.org/schema/security"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/spring-security http://www.mulesoft.org/schema/mule/spring-security/current/mule-spring-security.xsd
+http://www.mulesoft.org/schema/mule/spring-security http://www.mulesoft.org/schema/mule/spring-security/3.1/mule-spring-security.xsd
+http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security-3.0.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/xml http://www.mulesoft.org/schema/mule/xml/current/mule-xml.xsd">
+
+<spring:beans>
+    <ss:authentication-manager alias="authenticationManager">
+      <ss:authentication-provider>
+        <ss:user-service id="userService">
+          <ss:user name="pwcindia" password="pwcindia" authorities="ROLE_ADMIN" />
+          <ss:user name="indrojeet" password="muledemo" authorities="ROLE_ADMIN" />
+        </ss:user-service>
+      </ss:authentication-provider>
+    </ss:authentication-manager>
+  </spring:beans>
+ 
+  <mule-ss:security-manager>
+      <mule-ss:delegate-security-provider name="memory-provider" delegate-ref="authenticationManager" />
+  </mule-ss:security-manager>
+  
+	<http:listener-config name="HTTP_Listener_Configuration"
+		host="0.0.0.0" port="6070" doc:name="HTTP Listener Configuration" />
+	<http:request-config name="HTTP_Policy" host="demo6467500.mockable.io"
+		port="80" doc:name="HTTP Request Configuration" />
+	<http:request-config name="HTTP_Mule_Call" host="localhost"
+		port="6070" doc:name="HTTP Request Configuration" />
+	<flow name="NPV_Calculation_Engine">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/npv" doc:name="HTTP" allowedMethods="POST" />
+		<set-variable variableName="Json_Rate" value="#[json:root/financial/rate]"
+			doc:name="Json Rate Value" mimeType="application/json" />
+		<set-variable variableName="Rate"
+			value="#[java.lang.Double.valueOf(flowVars.Json_Rate)]" doc:name="Rate Value" />
+		<set-variable variableName="ValueArray"
+			value="#[json:root/financial/yearly_values/value]" doc:name="Yearly Value Array" />
+		<set-variable variableName="PVArray" value="#[[]]"
+			doc:name="Intialise Present Value Array" />
+		<set-variable variableName="NPV" value="#[0]" doc:name="Initialise NPV Variable" />
+		<!-- <set-payload value="#[flowVars.ValueArray]" doc:name="Set Payload"/> -->
+		<!-- <json:json-to-object-transformer returnClass="java.util.List" doc:name="JSON 
+			to Object"/> -->
+		<foreach doc:name="For Each" collection="#[flowVars.ValueArray]">
+			<set-variable variableName="PV"
+				value="#[flowVars.ValueArray[counter-1]/Math.pow(1 + flowVars.Rate,counter)]"
+				doc:name="PV" />
+			<expression-transformer
+				expression="#[flowVars.NPV = flowVars.NPV + flowVars.PV]" doc:name="Update NPV Value" />
+			<expression-transformer expression="#[flowVars.PVArray.add(flowVars.PV)]"
+				doc:name="Add PV Value to List" />
+		</foreach>
+		<!-- <logger message="#[1 + java.lang.Double.valueOf(flowVars.Rate)]" level="INFO" 
+			doc:name="Logger"/> -->
+		<set-payload
+			value="{
+&quot;rate&quot; : #[flowVars.Rate],
+&quot;values&quot; : #[flowVars.ValueArray],
+&quot;present_values&quot; : #[flowVars.PVArray],
+&quot;NPV&quot; : #[flowVars.NPV]
+}"
+			mimeType="application/json" doc:name="Set Payload" />
+        <logger message="#[payload]" level="INFO" doc:name="Log OutPut"/>
+
+	</flow>
+	<sub-flow name="npv_service_call">
+		<json:xml-to-json-transformer doc:name="XML to JSON" />
+		<http:request config-ref="HTTP_Mule_Call" path="/npv"
+			method="POST" doc:name="HTTP" />
+		<set-variable variableName="NPVResult" value="#[payload]"
+			doc:name="NPV Service Result" />
+		<set-payload value="#[flowVars.NPVResult]" doc:name="Set Payload" />
+		<set-variable variableName="NPV" value="#[json:NPV]"
+			doc:name="NPV Value" />
+	</sub-flow>
+    <sub-flow name="xslt_prep">
+        <byte-array-to-string-transformer doc:name="Byte Array to String"/>
+        <json:object-to-json-transformer doc:name="Object to JSON"/>
+        <set-variable variableName="policyName" value="#[json:policy]" doc:name="Policy Name From External"/>
+        <set-payload value="#[flowVars.Request]" doc:name="Set Payload"/>
+    </sub-flow>
+	<flow name="NPV_Calculation_Integration_with_External_System">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/policy_demo" allowedMethods="POST" doc:name="HTTP" />
+			<http:basic-security-filter realm="mule-realm" securityProviders="memory-provider"/> 
+        <mulexml:dom-to-xml-transformer doc:name="DOM to XML"/>
+		<set-variable variableName="Request" value="#[payload]"
+			doc:name="Request" />
+		<choice doc:name="Choice">
+			<when expression="xpath3('//policy') == 'policy1'">
+				<flow-ref name="npv_service_call" doc:name="Prepare for NPV Service Call" />
+				<http:request config-ref="HTTP_Policy" path="/policy1"
+					method="GET" doc:name="Call External System 1" />
+                <flow-ref name="xslt_prep" doc:name="Prepare For Output with Policy Name"/>
+				<mulexml:xslt-transformer
+					xsl-file="C:\Users\ishaangvst\AnypointStudio\workspace\muledemo\src\main\resources\xslt\policy1.xslt"
+					maxIdleTransformers="2" maxActiveTransformers="5" doc:name="XSLT">
+					<mulexml:context-property key="policyName"
+						value="#[flowVars.policyName]" />
+					<mulexml:context-property key="npv"
+						value="#[flowVars.NPV]" />
+				</mulexml:xslt-transformer>
+			</when>
+			<when expression="xpath3('//policy') == 'policy2'">
+				<flow-ref name="npv_service_call" doc:name="Prepare for NPV Service Call" />
+				<http:request config-ref="HTTP_Policy" path="/policy2"
+					method="GET" doc:name="Call External System 2" />
+                <flow-ref name="xslt_prep" doc:name="Prepare For Output with Policy Name"/>
+				<mulexml:xslt-transformer
+					xsl-file="C:\Users\ishaangvst\AnypointStudio\workspace\muledemo\src\main\resources\xslt\policy2.xslt"
+					maxIdleTransformers="2" maxActiveTransformers="5" doc:name="XSLT">
+					<mulexml:context-property key="policyName"
+						value="#[flowVars.policyName]" />
+					<mulexml:context-property key="npv"
+						value="#[flowVars.NPV]" />
+				</mulexml:xslt-transformer>
+			</when>
+			<otherwise>
+				<logger message="#['**** Invalid Policy Number ****']" level="INFO"
+					doc:name="Logger" />
+			</otherwise>
+		</choice>
+
+	</flow>
+</mule>
